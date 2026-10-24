@@ -12,7 +12,7 @@ Static multi-category storefront deployed on GitHub Pages, backed by Supabase Po
 - Never place the Supabase service-role/secret key in frontend files or GitHub Pages secrets used by client code.
 - The browser uses only the publishable/anon key for public product reads and Supabase Auth.
 - Anonymous users cannot insert directly into `orders`; order creation is exclusively through the Edge Function.
-- Order reads and updates are restricted to the configured admin user ID in RLS policies.
+- Order reads are restricted to the single account listed in `public.admin_users`; browser updates are limited to the order status column.
 - Prices and totals are recalculated in a database transaction from current product records. Client-provided prices are ignored, stock is decremented atomically, and an idempotency key prevents duplicate creation on retries.
 - A database-backed limit allows up to five order attempts per IP fingerprint per hour; the IP is HMAC-hashed using the server-only `RATE_LIMIT_SALT`.
 - Configure the admin user and Edge Function secrets before production.
@@ -27,7 +27,7 @@ Static multi-category storefront deployed on GitHub Pages, backed by Supabase Po
 7. Add products from the dashboard after signing in with the admin account.
 
 ## Local development
-This is a static HTML/CSS/JavaScript project using Vite for local development. Run `npm install` and `npm run dev`.
+This is a static HTML/CSS/JavaScript project using Vite for local development. Run `npm install`, `npm run check`, `npm test`, and `npm run dev`.
 
 ## Important
 GitHub Pages hosts static files only; all privileged operations run in Supabase Edge Functions. Before accepting real orders, verify the deployment, RLS policies, function secrets, allowed origin, and recovery procedures.
