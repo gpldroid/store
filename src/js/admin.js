@@ -149,5 +149,8 @@ logoutButton?.addEventListener("click", async () => {
   await supabase?.auth.signOut();
   await renderAuthState();
 });
-if (supabase) supabase.auth.onAuthStateChange(() => { void renderAuthState(); });
+$("#refresh-orders")?.addEventListener("click", async () => {
+  if (!await checkAdmin()) return showStatus("يجب تسجيل الدخول بحساب المدير.", "error");
+  await loadOrders();
+});
 void renderAuthState();
