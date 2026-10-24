@@ -135,16 +135,14 @@ Deno.serve(async (req: Request) => {
     p_city: city,
     p_country_code: country_code,
     p_currency: currency,
-    p_subtotal: subtotal,
-    p_shipping_amount: shippingAmount,
-    p_total_amount: totalAmount,
     p_idempotency_key: idempotencyKey,
-    p_items: orderLines
+    p_items: items
   });
 
   if (createError) {
     console.error("Order creation failed:", createError.message);
-    if (createError.message.includes("INSUFFICIENT_STOCK")) return json({ error: "A product just sold out. Please update your cart." }, 409);
+    if (createError.message.includes("INSUFFICIENT_STOCK") || createError.message.includes("PRODUCT_UNAVAILABLE")) return json({ error: "A product just sold out or is no longer available. Please update your cart." }, 409);
+    if (createError.message.includes("CURRENCY_MISMATCH")) return json({ error: "The cart currency no longer matches the product currency." }, 400);
     if (createError.code === "23505") {
       const { data: retryOrder } = await supabase.from("orders").select("order_reference").eq("idempotency_key", idempotencyKey).maybeSingle();
       if (retryOrder) return json({ order_reference: retryOrder.order_reference, reused: true }, 200);
