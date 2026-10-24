@@ -138,6 +138,108 @@ drop trigger if exists orders_status_history_trigger on public.orders;
 create trigger orders_status_history_trigger after update of status on public.orders
 for each row execute function public.log_order_status_change();
 
+-- This RPC is callable only by the Edge Function's service-role key.
+-- It locks products, recalculates prices, reserves stock, and writes order rows atomically.
+create or replace function public.create_cod_order(
+  p_order_reference text,
+  p_customer_name text,
+  p_phone text,
+  p_address text,
+  p_city text,
+  p_country_code text,
+  p_currency text,
+  p_idempotency_key text,
+  p_items jsonb
+)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $
+declare
+  item jsonb;
+  product_row public.products%rowtype;
+  item_product_id uuid;
+  item_quantity integer;
+  computed_subtotal numeric(12,2) := 0;
+  computed_line_total numeric(12,2);
+  created_order_id uuid;
+  item_count integer := 0;
+begin
+  if jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) < 1 or jsonb_array_length(p_items) > 30 then
+    raise exception 'INVALID_ITEMS';
+  end if;
+
+  for item in select value from jsonb_array_elements(p_items)
+  loop
+    item_count := item_count + 1;
+    item_product_id := (item ->> 'product_id')::uuid;
+    item_quantity := (item ->> 'quantity')::integer;
+    if item_quantity < 1 or item_quantity > 99 then
+      raise exception 'INVALID_QUANTITY';
+    end if;
+
+    select * into product_row
+      from public.products
+      where id = item_product_id
+      for update;
+
+    if not found or not product_row.is_active then
+      raise exception 'PRODUCT_UNAVAILABLE';
+    end if;
+    if product_row.currency <> p_currency then
+      raise exception 'CURRENCY_MISMATCH';
+    end if;
+    if product_row.stock < item_quantity then
+      raise exception 'INSUFFICIENT_STOCK';
+    end if;
+
+    computed_line_total := round(product_row.price * item_quantity, 2);
+    computed_subtotal := round(computed_subtotal + computed_line_total, 2);
+  end loop;
+
+  insert into public.orders (
+    order_reference, customer_name, phone, address, city, country_code,
+    currency, subtotal, shipping_amount, total_amount, status, idempotency_key
+  ) values (
+    p_order_reference, p_customer_name, p_phone, p_address, p_city, p_country_code,
+    p_currency, computed_subtotal, 0, computed_subtotal, 'pending', p_idempotency_key
+  )
+  returning id into created_order_id;
+
+  for item in select value from jsonb_array_elements(p_items)
+  loop
+    item_product_id := (item ->> 'product_id')::uuid;
+    item_quantity := (item ->> 'quantity')::integer;
+
+    select * into product_row
+      from public.products
+      where id = item_product_id
+      for update;
+
+    update public.products
+      set stock = stock - item_quantity
+      where id = item_product_id and stock >= item_quantity and is_active = true;
+    if not found then
+      raise exception 'INSUFFICIENT_STOCK';
+    end if;
+
+    computed_line_total := round(product_row.price * item_quantity, 2);
+    insert into public.order_items (
+      order_id, product_id, product_name_ar, product_name_fr, quantity, unit_price, line_total
+    ) values (
+      created_order_id, product_row.id, product_row.name_ar, product_row.name_fr,
+      item_quantity, product_row.price, computed_line_total
+    );
+  end loop;
+
+  return p_order_reference;
+end;
+$;
+
+revoke all on function public.create_cod_order(text,text,text,text,text,text,text,text,jsonb) from public, anon, authenticated;
+grant execute on function public.create_cod_order(text,text,text,text,text,text,text,text,jsonb) to service_role;
+
 -- After creating your admin in Supabase Auth, run:
 -- insert into public.admin_users (user_id) values ('YOUR_AUTH_USER_UUID');
 -- Do this only from the SQL Editor as project owner; never expose this privilege to the browser.
