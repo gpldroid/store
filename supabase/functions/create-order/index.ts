@@ -80,6 +80,33 @@ Deno.serve(async (req: Request) => {
     auth: { persistSession: false, autoRefreshToken: false }
   });
 
+  const rateLimitSalt = Deno.env.get("RATE_LIMIT_SALT");
+  const sourceIp = req.headers.get("cf-connecting-ip") ??
+    req.headers.get("x-real-ip") ??
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  if (!rateLimitSalt || rateLimitSalt.length < 32 || !sourceIp) {
+    console.error("Missing rate-limit configuration or source IP.");
+    return json({ error: "Order service is not fully configured." }, 503);
+  }
+  const hmacKey = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(rateLimitSalt),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const fingerprintBytes = await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder().encode(sourceIp));
+  const fingerprint = Array.from(new Uint8Array(fingerprintBytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const { data: allowed, error: rateLimitError } = await supabase.rpc("consume_cod_order_rate_limit", {
+    p_fingerprint: fingerprint,
+    p_max_requests: 5
+  });
+  if (rateLimitError) {
+    console.error("Rate limit check failed:", rateLimitError.message);
+    return json({ error: "Could not verify request limits. Please retry later." }, 503);
+  }
+  if (allowed !== true) return json({ error: "Too many order attempts. Please try again later." }, 429);
+
   const { data: priorOrder, error: priorError } = await supabase
     .from("orders").select("order_reference").eq("idempotency_key", idempotencyKey).maybeSingle();
   if (priorError) {
