@@ -55,7 +55,7 @@ function addToCart(product) {
     }
     existing.quantity += 1;
   } else {
-    cart.push({ id: product.id, quantity: 1, name: locale === "ar" ? product.name_ar : product.name_fr, currency: product.currency });
+    cart.push({ id: product.id, quantity: 1, name: locale === "ar" ? product.name_ar : product.name_fr, price: Number(product.price), currency: product.currency });
   }
   localStorage.setItem("store-cart", JSON.stringify(cart));
   updateCartCount();
