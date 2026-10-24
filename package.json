@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "node --check src/js/supabaseClient.js && node --check src/js/app.js && node --check src/js/cart.js && node --check src/js/checkout.js && node --check src/js/admin.js"
+    "check": "node --check src/js/supabaseClient.js && node --check src/js/app.js && node --check src/js/cart.js && node --check src/js/checkout.js && node --check src/js/admin.js",
+    "test": "node tests/smoke-check.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0"
