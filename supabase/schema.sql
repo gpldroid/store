@@ -170,7 +170,7 @@ begin
     raise exception 'INVALID_ITEMS';
   end if;
 
-  for item in select value from jsonb_array_elements(p_items)
+  for item in select value from jsonb_array_elements(p_items) order by value ->> 'product_id'
   loop
     item_count := item_count + 1;
     item_product_id := (item ->> 'product_id')::uuid;
@@ -207,7 +207,7 @@ begin
   )
   returning id into created_order_id;
 
-  for item in select value from jsonb_array_elements(p_items)
+  for item in select value from jsonb_array_elements(p_items) order by value ->> 'product_id'
   loop
     item_product_id := (item ->> 'product_id')::uuid;
     item_quantity := (item ->> 'quantity')::integer;
