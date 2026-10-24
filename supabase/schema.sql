@@ -67,7 +67,8 @@ create index if not exists orders_created_at_idx on public.orders (created_at de
 create index if not exists orders_status_created_idx on public.orders (status, created_at desc);
 alter table public.orders enable row level security;
 revoke all on public.orders from anon, authenticated;
-grant select, update on public.orders to authenticated;
+grant select on public.orders to authenticated;
+grant update(status) on public.orders to authenticated;
 create policy "Admins can read orders"
   on public.orders for select to authenticated
   using (exists (select 1 from public.admin_users a where a.user_id = (select auth.uid())));
@@ -137,6 +138,259 @@ $$;
 drop trigger if exists orders_status_history_trigger on public.orders;
 create trigger orders_status_history_trigger after update of status on public.orders
 for each row execute function public.log_order_status_change();
+
+
+-- Privacy-preserving fixed-hour rate limit. The Edge Function sends only a keyed hash of the source IP.
+create table if not exists public.cod_order_rate_limits (
+  fingerprint text primary key check (fingerprint ~ '^[a-f0-9]{64}
+-- It locks products, recalculates prices, reserves stock, and writes order rows atomically.
+create or replace function public.create_cod_order(
+  p_order_reference text,
+  p_customer_name text,
+  p_phone text,
+  p_address text,
+  p_city text,
+  p_country_code text,
+  p_currency text,
+  p_idempotency_key text,
+  p_items jsonb
+)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $
+declare
+  item jsonb;
+  product_row public.products%rowtype;
+  item_product_id uuid;
+  item_quantity integer;
+  computed_subtotal numeric(12,2) := 0;
+  computed_line_total numeric(12,2);
+  created_order_id uuid;
+  item_count integer := 0;
+begin
+  if jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) < 1 or jsonb_array_length(p_items) > 30 then
+    raise exception 'INVALID_ITEMS';
+  end if;
+
+  for item in select value from jsonb_array_elements(p_items) order by value ->> 'product_id'
+  loop
+    item_count := item_count + 1;
+    item_product_id := (item ->> 'product_id')::uuid;
+    item_quantity := (item ->> 'quantity')::integer;
+    if item_quantity < 1 or item_quantity > 99 then
+      raise exception 'INVALID_QUANTITY';
+    end if;
+
+    select * into product_row
+      from public.products
+      where id = item_product_id
+      for update;
+
+    if not found or not product_row.is_active then
+      raise exception 'PRODUCT_UNAVAILABLE';
+    end if;
+    if product_row.currency <> p_currency then
+      raise exception 'CURRENCY_MISMATCH';
+    end if;
+    if product_row.stock < item_quantity then
+      raise exception 'INSUFFICIENT_STOCK';
+    end if;
+
+    computed_line_total := round(product_row.price * item_quantity, 2);
+    computed_subtotal := round(computed_subtotal + computed_line_total, 2);
+  end loop;
+
+  insert into public.orders (
+    order_reference, customer_name, phone, address, city, country_code,
+    currency, subtotal, shipping_amount, total_amount, status, idempotency_key
+  ) values (
+    p_order_reference, p_customer_name, p_phone, p_address, p_city, p_country_code,
+    p_currency, computed_subtotal, 0, computed_subtotal, 'pending', p_idempotency_key
+  )
+  returning id into created_order_id;
+
+  for item in select value from jsonb_array_elements(p_items) order by value ->> 'product_id'
+  loop
+    item_product_id := (item ->> 'product_id')::uuid;
+    item_quantity := (item ->> 'quantity')::integer;
+
+    select * into product_row
+      from public.products
+      where id = item_product_id
+      for update;
+
+    update public.products
+      set stock = stock - item_quantity
+      where id = item_product_id and stock >= item_quantity and is_active = true;
+    if not found then
+      raise exception 'INSUFFICIENT_STOCK';
+    end if;
+
+    computed_line_total := round(product_row.price * item_quantity, 2);
+    insert into public.order_items (
+      order_id, product_id, product_name_ar, product_name_fr, quantity, unit_price, line_total
+    ) values (
+      created_order_id, product_row.id, product_row.name_ar, product_row.name_fr,
+      item_quantity, product_row.price, computed_line_total
+    );
+  end loop;
+
+  return p_order_reference;
+end;
+$;
+
+revoke all on function public.create_cod_order(text,text,text,text,text,text,text,text,jsonb) from public, anon, authenticated;
+grant execute on function public.create_cod_order(text,text,text,text,text,text,text,text,jsonb) to service_role;
+
+-- After creating your admin in Supabase Auth, run:
+-- insert into public.admin_users (user_id) values ('YOUR_AUTH_USER_UUID');
+-- Do this only from the SQL Editor as project owner; never expose this privilege to the browser.
+),
+  window_started_at timestamptz not null,
+  request_count integer not null check (request_count >= 0)
+);
+alter table public.cod_order_rate_limits enable row level security;
+revoke all on public.cod_order_rate_limits from public, anon, authenticated, service_role;
+
+create or replace function public.consume_cod_order_rate_limit(p_fingerprint text, p_max_requests integer default 5)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $
+declare
+  current_window timestamptz := date_trunc('hour', now());
+  new_count integer;
+begin
+  if p_fingerprint !~ '^[a-f0-9]{64}
+-- It locks products, recalculates prices, reserves stock, and writes order rows atomically.
+create or replace function public.create_cod_order(
+  p_order_reference text,
+  p_customer_name text,
+  p_phone text,
+  p_address text,
+  p_city text,
+  p_country_code text,
+  p_currency text,
+  p_idempotency_key text,
+  p_items jsonb
+)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $
+declare
+  item jsonb;
+  product_row public.products%rowtype;
+  item_product_id uuid;
+  item_quantity integer;
+  computed_subtotal numeric(12,2) := 0;
+  computed_line_total numeric(12,2);
+  created_order_id uuid;
+  item_count integer := 0;
+begin
+  if jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) < 1 or jsonb_array_length(p_items) > 30 then
+    raise exception 'INVALID_ITEMS';
+  end if;
+
+  for item in select value from jsonb_array_elements(p_items) order by value ->> 'product_id'
+  loop
+    item_count := item_count + 1;
+    item_product_id := (item ->> 'product_id')::uuid;
+    item_quantity := (item ->> 'quantity')::integer;
+    if item_quantity < 1 or item_quantity > 99 then
+      raise exception 'INVALID_QUANTITY';
+    end if;
+
+    select * into product_row
+      from public.products
+      where id = item_product_id
+      for update;
+
+    if not found or not product_row.is_active then
+      raise exception 'PRODUCT_UNAVAILABLE';
+    end if;
+    if product_row.currency <> p_currency then
+      raise exception 'CURRENCY_MISMATCH';
+    end if;
+    if product_row.stock < item_quantity then
+      raise exception 'INSUFFICIENT_STOCK';
+    end if;
+
+    computed_line_total := round(product_row.price * item_quantity, 2);
+    computed_subtotal := round(computed_subtotal + computed_line_total, 2);
+  end loop;
+
+  insert into public.orders (
+    order_reference, customer_name, phone, address, city, country_code,
+    currency, subtotal, shipping_amount, total_amount, status, idempotency_key
+  ) values (
+    p_order_reference, p_customer_name, p_phone, p_address, p_city, p_country_code,
+    p_currency, computed_subtotal, 0, computed_subtotal, 'pending', p_idempotency_key
+  )
+  returning id into created_order_id;
+
+  for item in select value from jsonb_array_elements(p_items) order by value ->> 'product_id'
+  loop
+    item_product_id := (item ->> 'product_id')::uuid;
+    item_quantity := (item ->> 'quantity')::integer;
+
+    select * into product_row
+      from public.products
+      where id = item_product_id
+      for update;
+
+    update public.products
+      set stock = stock - item_quantity
+      where id = item_product_id and stock >= item_quantity and is_active = true;
+    if not found then
+      raise exception 'INSUFFICIENT_STOCK';
+    end if;
+
+    computed_line_total := round(product_row.price * item_quantity, 2);
+    insert into public.order_items (
+      order_id, product_id, product_name_ar, product_name_fr, quantity, unit_price, line_total
+    ) values (
+      created_order_id, product_row.id, product_row.name_ar, product_row.name_fr,
+      item_quantity, product_row.price, computed_line_total
+    );
+  end loop;
+
+  return p_order_reference;
+end;
+$;
+
+revoke all on function public.create_cod_order(text,text,text,text,text,text,text,text,jsonb) from public, anon, authenticated;
+grant execute on function public.create_cod_order(text,text,text,text,text,text,text,text,jsonb) to service_role;
+
+-- After creating your admin in Supabase Auth, run:
+-- insert into public.admin_users (user_id) values ('YOUR_AUTH_USER_UUID');
+-- Do this only from the SQL Editor as project owner; never expose this privilege to the browser.
+ or p_max_requests < 1 or p_max_requests > 100 then
+    raise exception 'INVALID_RATE_LIMIT_ARGUMENT';
+  end if;
+
+  insert into public.cod_order_rate_limits(fingerprint, window_started_at, request_count)
+  values (p_fingerprint, current_window, 1)
+  on conflict (fingerprint) do update
+    set window_started_at = case
+          when public.cod_order_rate_limits.window_started_at < current_window then current_window
+          else public.cod_order_rate_limits.window_started_at
+        end,
+        request_count = case
+          when public.cod_order_rate_limits.window_started_at < current_window then 1
+          else public.cod_order_rate_limits.request_count + 1
+        end
+  returning request_count into new_count;
+
+  return new_count <= p_max_requests;
+end;
+$;
+revoke all on function public.consume_cod_order_rate_limit(text,integer) from public, anon, authenticated;
+grant execute on function public.consume_cod_order_rate_limit(text,integer) to service_role;
 
 -- This RPC is callable only by the Edge Function's service-role key.
 -- It locks products, recalculates prices, reserves stock, and writes order rows atomically.
