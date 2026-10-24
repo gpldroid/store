@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>إتمام الطلب — Store</title><link rel="stylesheet" href="./src/assets/css/style.css"><script type="module" src="./src/js/checkout.js"></script></head>
+<body><header class="site-header"><a class="brand" href="./index.html">store<span>.</span></a><nav><a href="./cart.html">العودة إلى السلة</a></nav></header>
+<main class="narrow-page"><p class="eyebrow">الدفع عند الاستلام</p><h1>أكمل بيانات التوصيل</h1><p class="muted">سيتم احتساب السعر النهائي من قاعدة البيانات قبل إنشاء الطلب.</p>
+<form id="checkout-form" class="form-card">
+<label>الاسم الكامل<input name="customer_name" autocomplete="name" minlength="2" maxlength="100" required></label>
+<label>رقم الهاتف<input name="phone" type="tel" autocomplete="tel" minlength="7" maxlength="25" required></label>
+<label>الدولة<select name="country_code" required><option value="">اختر الدولة</option><option value="MA">المغرب</option><option value="FR">France</option><option value="US">United States</option><option value="GB">United Kingdom</option><option value="CA">Canada</option><option value="AE">الإمارات</option><option value="SA">السعودية</option><option value="DZ">الجزائر</option><option value="TN">تونس</option><option value="ES">إسبانيا</option></select></label>
+<label>المدينة<input name="city" autocomplete="address-level2" minlength="2" maxlength="100" required></label>
+<label>العنوان الكامل<textarea name="address" autocomplete="street-address" minlength="5" maxlength="500" rows="3" required></textarea></label>
+<label class="honeypot" aria-hidden="true">لا تملأ هذا الحقل<input name="website" tabindex="-1" autocomplete="off"></label>
+<div class="notice">طريقة الدفع: نقداً عند الاستلام. سيتم مراجعة الطلب قبل الشحن.</div>
+<button class="button button-primary button-wide" type="submit">تأكيد الطلب والدفع عند الاستلام</button><p id="checkout-status" class="notice" role="status" aria-live="polite"></p>
+</form></main><footer class="site-footer"><a class="brand" href="./index.html">store<span>.</span></a><p>بياناتك تستخدم لمعالجة طلبك فقط.</p></footer></body></html>
