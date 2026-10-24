@@ -118,15 +118,13 @@ Deno.serve(async (req: Request) => {
   const productIds = items.map((item) => item.product_id);
   const { data: products, error: productError } = await supabase
     .from("products")
-    .select("id,name_ar,name_fr,price,currency,stock,is_active")
+    .select("id,currency,stock,is_active")
     .in("id", productIds);
   if (productError || !products || products.length !== items.length) {
     return json({ error: "One or more products are no longer available." }, 400);
   }
 
   const byId = new Map(products.map((product) => [product.id, product]));
-  let subtotal = 0;
-  const orderLines: Array<Record<string, unknown>> = [];
   for (const item of items) {
     const product = byId.get(item.product_id);
     if (!product || !product.is_active || product.stock < item.quantity) {
@@ -135,22 +133,10 @@ Deno.serve(async (req: Request) => {
     if (product.currency !== currency) {
       return json({ error: "All products in an order must use the selected currency." }, 400);
     }
-    const unitPrice = Number(product.price);
-    const lineTotal = Math.round((unitPrice * item.quantity + Number.EPSILON) * 100) / 100;
-    subtotal = Math.round((subtotal + lineTotal + Number.EPSILON) * 100) / 100;
-    orderLines.push({
-      product_id: product.id,
-      product_name_ar: product.name_ar,
-      product_name_fr: product.name_fr,
-      quantity: item.quantity,
-      unit_price: unitPrice,
-      line_total: lineTotal
-    });
   }
 
-  // Shipping is intentionally zero until the store owner configures verified rates.
-  const shippingAmount = 0;
-  const totalAmount = Math.round((subtotal + shippingAmount + Number.EPSILON) * 100) / 100;
+  // The database transaction recalculates prices and totals from locked product rows.
+  // Shipping is intentionally zero until verified delivery rates are configured.
   const orderReference = `COD-${crypto.randomUUID().replaceAll("-", "").slice(0, 12).toUpperCase()}`;
 
   // Use a database RPC transaction so stock validation, decrement, and order creation are atomic.
