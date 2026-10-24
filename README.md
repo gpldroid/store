@@ -19,9 +19,9 @@ Static multi-category storefront deployed on GitHub Pages, backed by Supabase Po
 ## Setup
 1. Create a Supabase project.
 2. Run `supabase/schema.sql` in the Supabase SQL Editor.
-3. Create your admin user in Supabase Auth, then set `ADMIN_USER_ID` to that user's UUID in the Edge Function secrets and replace the matching admin UUID in the SQL policy setup with the actual UUID.
-4. Deploy the Edge Function `create-order` and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_USER_ID`, and optionally `ALLOWED_ORIGIN` as function secrets.
-5. Set GitHub repository Actions variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (or the publishable key) for the static site build. These are public client values, not secrets.
+3. Create your single admin user in Supabase Auth, then insert that user's UUID into `public.admin_users` from the Supabase SQL Editor. No `ADMIN_USER_ID` Edge Function secret is needed; admin access is controlled by the database membership table.
+4. Deploy the Edge Function with `supabase functions deploy create-order --no-verify-jwt`. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `ALLOWED_ORIGIN=https://gpldroid.github.io` as function secrets. The function's database RPC is restricted to `service_role`; do not expose that key in browser code.
+5. Set GitHub repository Actions variables `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (or publishable key), and `VITE_CREATE_ORDER_FUNCTION_URL` for the static site build. These are public client values, not secrets.
 6. Enable GitHub Pages using GitHub Actions as the source.
 7. Add products from the dashboard after signing in with the admin account.
 
